@@ -1,0 +1,197 @@
+# .gitlab-ci.yml
+# Source: https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Getting-Started.gitlab-ci.yml
+
+############################################################
+# TEST VAULT INTEGRATION
+# GITLAB CUSTOM_CLAIM / `project_path` 
+############################################################
+
+# JOB: read_secrets_path
+read_secrets_path:
+  image: hashicorp/vault:latest
+  #### ID TOKEN
+  id_tokens:
+    ID_TOKEN_1:
+      aud: $VAULT_ADDR
+        # - https://localhost:8200
+        # - https://gitlab.com
+  script:
+    #### CHECK ID_TOKEN
+    - "echo -e \"ID_TOKEN_1:\" $ID_TOKEN_1"
+    #### CHECK job's repo
+    - "echo -e \"CI_REPOSITORY_URL:\" $CI_REPOSITORY_URL"
+    #### Check job's ref name
+    - "echo -e \"CI_COMMIT_REF_NAME:\" $CI_COMMIT_REF_NAME"
+    #### and is this ref protected
+    - "echo -e \"CI_COMMIT_REF_PROTECTED:\" $CI_COMMIT_REF_PROTECTED"
+    #### Vault Namespace
+    - export VAULT_NAMESPACE=admin
+    #### GitLab Project Path
+    - "echo -e \"CI_PROJECT_PATH:\" $CI_PROJECT_PATH"
+    #### Vault's address can be provided here or as CI/CD variable
+    #### https://docs.gitlab.com/ee/ci/variables/
+    #- export VAULT_ADDR=https://vault-public-vault-blah-blah-blah.z1.hashicorp.cloud:8200
+    #### Authenticate and get token. Token expiry time and other properties can be configured
+    #### when configuring JWT Auth - https://developer.hashicorp.com/vault/api-docs/auth/jwt#parameters-1
+    #### DEPRECATIONS: $CI_JOB_JWT - Change to ID_TOKEN
+    #### https://docs.gitlab.com/ee/update/deprecations.html#hashicorp-vault-integration-will-no-longer-use-ci_job_jwt-by-default
+    # - export VAULT_TOKEN="$(vault write -field=token auth/jwt-gitlab/login role=role-dev jwt=$CI_JOB_JWT)"
+    - export VAULT_TOKEN="$(vault write -field=token auth/jwt-gitlab-id-token/login role=role-meta jwt=$ID_TOKEN_1)"
+    - export TOKEN_LOOKUP="$(vault token lookup -format=json)"
+    - "echo -e \"TOKEN_LOOKUP:\" $TOKEN_LOOKUP"
+    #### DEBUG POLICY
+    #- export VAULT_POLICY="$(vault policy read {{policy_name}})"
+    #- "echo -e \"VAULT_POLICY:\" $VAULT_POLICY"
+    #### Now use the VAULT_TOKEN to read the secret and store it in an environment variable
+    - export PASSWORD="$(vault kv get -field=password gitlab/$CI_PROJECT_PATH)"
+    #### Use the secret
+    - "echo -e \"VAULT SECRET at SECRET_MOUNT/CI_PROJECT_PATH:\" $PASSWORD"
+
+
+############################################################
+# [CURRENT] ID_TOKEN METHOD
+# ENVIRONMENT: PROD
+############################################################
+
+# JOB: read_secrets_prod
+read_secrets_prod:
+  image: hashicorp/vault:latest
+  #### ID TOKEN
+  id_tokens:
+    ID_TOKEN_1:
+      aud: $VAULT_ADDR
+        # - https://localhost:8200
+        # - https://gitlab.com
+  script:
+    #### CHECK ID_TOKEN
+    - echo $ID_TOKEN_1
+    #### Check job's ref name
+    - echo $CI_COMMIT_REF_NAME
+    #### and is this ref protected
+    - echo $CI_COMMIT_REF_PROTECTED
+    #### Check CI_JOB_JWT Token [DEPRECATED]
+    # - echo $CI_JOB_JWT
+    #### Check CI_JOB_JWT_V2 Token [DEPRECATED]
+    # - echo $CI_JOB_JWT_V2
+    #### Vault Namespace
+    - export VAULT_NAMESPACE=admin
+    #### Vault's address can be provided here or as CI/CD variable
+    #### https://docs.gitlab.com/ee/ci/variables/
+    #- export VAULT_ADDR=https://vault-public-vault-blah-blah-blah.z1.hashicorp.cloud:8200
+    #### Authenticate and get token. Token expiry time and other properties can be configured
+    #### when configuring JWT Auth - https://developer.hashicorp.com/vault/api-docs/auth/jwt#parameters-1
+    #### DEPRECATIONS: $CI_JOB_JWT - Change to ID_TOKEN
+    #### https://docs.gitlab.com/ee/update/deprecations.html#hashicorp-vault-integration-will-no-longer-use-ci_job_jwt-by-default
+    # - export VAULT_TOKEN="$(vault write -field=token auth/jwt-gitlab/login role=role-dev jwt=$CI_JOB_JWT)"
+    - export VAULT_TOKEN="$(vault write -field=token auth/jwt-gitlab-id-token/login role=role-prod jwt=$ID_TOKEN_1)"
+    - export TOKEN_LOOKUP="$(vault token lookup -format=json)"
+    - "echo -e \"TOKEN_LOOKUP:\" $TOKEN_LOOKUP"
+    #### DEBUG POLICY
+    #- export VAULT_POLICY="$(vault policy read {{policy_name}})"
+    #- "echo -e \"VAULT_POLICY:\" $VAULT_POLICY"
+    #### Now use the VAULT_TOKEN to read the secret and store it in an environment variable
+    #### This will fail because the role `role-prod` can not read secrets from gitlab/dev/cred/*
+    - "echo -e \"*** THIS SHOULD FAIL ***\""
+    - export PASSWORD_DEV="$(vault kv get -field=password gitlab/dev/cred)"
+    #### Use the secret
+    - "echo -e \"DEV PASSWORD:\" $PASSWORD_DEV"
+    #### This will pass because the role `role-prod` should be able to read secrets from gitlab/prod/cred/*
+    - "echo -e \"*** THIS SHOULD PASS ***\""
+    - export PASSWORD_PROD="$(vault kv get -field=password gitlab/prod/cred)"
+    #### Use the secret
+    - "echo -e \"PROD PASSWORD:\" $PASSWORD_PROD"
+  # secrets:
+  #   TEST_SECRET:
+  #     vault: gitlab/prod/cred
+  environment:
+    name: prod
+
+# JOB: read_secrets_dev
+read_secrets_dev:
+  image: hashicorp/vault:latest
+  #### ID TOKEN
+  id_tokens:
+    ID_TOKEN_2:
+      aud: $VAULT_ADDR
+        # - https://localhost:8200
+        # - https://gitlab.com
+  script:
+    #### Check job's ref name
+    - echo $CI_COMMIT_REF_NAME
+    #### and is this ref protected
+    - echo $CI_COMMIT_REF_PROTECTED
+    #### Check CI_JOB_JWT Token
+    # - echo $CI_JOB_JWT
+    #### Check CI_JOB_JWT_V2 Token
+    # - echo $CI_JOB_JWT_V2
+    #### Vault Namespace
+    - export VAULT_NAMESPACE=admin
+    #### Vault's address can be provided here or as CI/CD variable
+    #### https://docs.gitlab.com/ee/ci/variables/
+    #- export VAULT_ADDR=https://vault-public-vault-blah-blah-blah.z1.hashicorp.cloud:8200
+    #### Authenticate and get token. Token expiry time and other properties can be configured
+    #### when configuring JWT Auth - https://developer.hashicorp.com/vault/api-docs/auth/jwt#parameters-1
+    #### DEPRECATIONS: $CI_JOB_JWT - Change to ID_TOKEN
+    #### https://docs.gitlab.com/ee/update/deprecations.html#hashicorp-vault-integration-will-no-longer-use-ci_job_jwt-by-default
+    # - export VAULT_TOKEN="$(vault write -field=token auth/jwt-gitlab/login role=role-dev jwt=$CI_JOB_JWT)"
+    - export VAULT_TOKEN="$(vault write -field=token auth/jwt-gitlab-id-token/login role=role-dev jwt=$ID_TOKEN_2)"
+    - export TOKEN_LOOKUP="$(vault token lookup -format=json)"
+    - "echo -e \"TOKEN_LOOKUP:\" $TOKEN_LOOKUP"
+    #### Now use the VAULT_TOKEN to read the secret and store it in an environment variable
+    - "echo -e \"*** THIS SHOULD PASS ***\""
+    - export PASSWORD_DEV="$(vault kv get -field=password gitlab/dev/cred)"
+    #### Use the secret
+    - "echo -e \"DEV PASSWORD:\" $PASSWORD_DEV"
+    #### This will fail because the role `role-dev` can not read secrets from gitlab/prod/cred/*
+    - "echo -e \"*** THIS SHOULD FAIL ***\""
+    - export PASSWORD_PROD="$(vault kv get -field=password gitlab/prod/cred)"
+    #### Use the secret
+    - "echo -e \"PROD PASSWORD:\" $PASSWORD_PROD"
+  environment:
+    name: dev
+
+
+############################################################
+# [DEPRECATED] CI_JOB_JWT METHOD
+# ENVIRONMENT: DEV
+############################################################
+
+# # JOB: read_secrets_dev
+# read_secrets_dev:
+#   image: hashicorp/vault:latest
+#   script:
+#     #### Check job's ref name
+#     - echo $CI_COMMIT_REF_NAME
+#     #### and is this ref protected
+#     - echo $CI_COMMIT_REF_PROTECTED
+#     #### Check CI_JOB_JWT Token
+#     - echo $CI_JOB_JWT
+#     #### Check CI_JOB_JWT_V2 Token
+#     - echo $CI_JOB_JWT_V2
+#     #### Vault Namespace
+#     - export VAULT_NAMESPACE=admin
+#     #### Vault's address can be provided here or as CI/CD variable
+#     #### https://docs.gitlab.com/ee/ci/variables/
+#     #- export VAULT_ADDR=https://vault-public-vault-blah-blah-blah.z1.hashicorp.cloud:8200
+#     #### Authenticate and get token. Token expiry time and other properties can be configured
+#     #### when configuring JWT Auth - https://developer.hashicorp.com/vault/api-docs/auth/jwt#parameters-1
+#     #### DEPRECATIONS: $CI_JOB_JWT - Change to ID_TOKEN
+#     #### https://docs.gitlab.com/ee/update/deprecations.html#hashicorp-vault-integration-will-no-longer-use-ci_job_jwt-by-default
+#     # - export VAULT_TOKEN="$(vault write -field=token auth/jwt-gitlab/login role=role-dev jwt=$CI_JOB_JWT)"
+#     #- export VAULT_TOKEN="$(vault write -field=token auth/jwt-gitlab-id-token/login role=role-dev jwt=$ID_TOKEN_1)"
+#     #### Check Vault Token
+#     #- echo $VAULT_TOKEN
+#     #### Now use the VAULT_TOKEN to read the secret and store it in an environment variable
+#     - export PASSWORD="$(vault kv get -field=password gitlab/dev/cred)"
+#     #### Use the secret
+#     - echo $PASSWORD
+#     #### This will fail because the role `role-dev` can not read secrets from gitlab/prod/cred/*
+#     - export PASSWORD="$(vault kv get -field=password gitlab/prod/cred)"
+#     #### Use the secret
+#     - echo $PASSWORD
+#   environment:
+#     name: dev
+
+
+
+
